@@ -20,6 +20,7 @@ data class TopSitesConfig(
     val totalSites: Int,
     val frecencyConfig: TopSitesFrecencyConfig? = null,
     val providerConfig: TopSitesProviderConfig? = null,
+    val showTopRecentSites: Boolean = false,
 )
 
 /**
