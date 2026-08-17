@@ -1204,14 +1204,24 @@ class GeckoEngineSession(
             }
 
             // Kitsune: Inject fingerprint override script at onPageStart.
-            // We use GeckoView's loadUri with a data: URI that contains
-            // an inline JS script — but this navigates away from the page.
-            // Instead, the WebExtension content_script.js running at
-            // document_start handles the actual override. Here we just
-            // log that a navigation started (the extension picks it up).
+            // The KitsuneFpBridge returns the full JS override script
+            // (built by KitsuneFpInjector from the active profile).
+            // We inject it via loadUri("javascript:...") which runs in
+            // the page's own compartment (main world) — this is the ONLY
+            // reliable way to override navigator.platform, Date, Intl
+            // etc. before the page's own scripts can read the originals.
             try {
                 mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.onPageStart()
-            } catch (_: Exception) {}
+                val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
+                if (script != null) {
+                    // loadUri with javascript: scheme executes the script
+                    // in the page's main world. GeckoView redirects this
+                    // internally to evaluateJavaScript without navigating.
+                    session.loadUri("javascript:" + script)
+                }
+            } catch (_: Exception) {
+                // fall through to normal onPageStart handling
+            }
 
             notifyObservers {
                 onProgress(PROGRESS_START)

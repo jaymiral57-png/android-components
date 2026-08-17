@@ -12,26 +12,30 @@ import java.io.File
  * Static bridge between the app module's fingerprint injector and the
  * GeckoEngineSession (which can't depend on the app module directly).
  *
- * The app registers a config provider via [setProvider]. GeckoEngineSession
- * calls [onPageStart] on every navigation, which writes the current config
- * to a file in the app's data directory. The fp_injector WebExtension's
- * content_script.js fetches this file at document_start to get the
- * fingerprint config.
+ * The app registers a script provider via [initialize]. GeckoEngineSession
+ * calls [getInjectionScript] on every navigation (onPageStart), which
+ * returns the full JS override script to inject into the page via
+ * GeckoSession.loadUri("javascript:...") — the ONLY reliable way to run
+ * JS in the page's main world at document_start under GeckoView.
  *
  * Communication flow:
  *  GeckoEngineSession.onPageStart
- *    → KitsuneFpBridge.onPageStart()
- *    → writes config JSON to /data/data/.../files/kitsune_fp.json
- *    → content_script.js fetches('file:///data/.../kitsune_fp.json')
- *      OR reads from a web-accessible resource
+ *    → KitsuneFpBridge.getInjectionScript()
+ *    → provider() returns the full JS script (built by KitsuneFpInjector)
+ *    → GeckoEngineSession calls session.loadUri("javascript:" + script)
+ *    → script executes in the PAGE's own compartment before page scripts
  *
- * Alternative: the content script calls runtime.sendMessage to the
- * background script which calls sendNativeMessage to get the config.
+ * The WebExtension content_script.js is kept as a fallback for sub-frames
+ * and late navigations, but the evaluateJavaScript/loadUri path is the
+ * primary injection mechanism.
  */
 object KitsuneFpBridge {
 
     private const val TAG = "KitsuneFpBridge"
     private const val CONFIG_FILE = "kitsune_fp.json"
+
+    @Volatile
+    private var scriptProvider: (() -> String?)? = null
 
     @Volatile
     private var configProvider: (() -> String?)? = null
@@ -43,18 +47,39 @@ object KitsuneFpBridge {
     private var lastConfig: String? = null
 
     /**
-     * Register the app-side config provider and context.
+     * Register the app-side injection script provider and context.
      * Called from KitsuneFpInjector.install().
+     *
+     * The [scriptProvider] should return the FULL JavaScript override
+     * script (wrapped in an IIFE) ready to be prefixed with "javascript:".
+     * Returns null when no profile is active (no injection).
      */
-    fun initialize(context: Context, provider: () -> String?) {
+    fun initialize(context: Context, scriptProvider: () -> String?) {
         this.context = context.applicationContext
-        this.configProvider = provider
+        this.scriptProvider = scriptProvider
+        // Keep the legacy config-file writer for the WebExtension fallback
+        writeConfig()
+    }
+
+    /** Legacy: also accept a plain config provider for the WebExtension path. */
+    fun initializeLegacy(context: Context, configProvider: () -> String?) {
+        this.context = context.applicationContext
+        this.configProvider = configProvider
         writeConfig()
     }
 
     /**
+     * Returns the injection script to run in the page's main world.
      * Called by GeckoEngineSession.onPageStart on every navigation.
-     * Writes the current config to a file for the content script.
+     * Returns null if no profile is active.
+     */
+    fun getInjectionScript(): String? {
+        return scriptProvider?.invoke()
+    }
+
+    /**
+     * Legacy: called by GeckoEngineSession.onPageStart to refresh the
+     * on-disk config file for the WebExtension content script fallback.
      */
     fun onPageStart() {
         writeConfig()
@@ -63,7 +88,7 @@ object KitsuneFpBridge {
     /**
      * Write the current fingerprint config to a file in the app's
      * private data directory. The content script's background.js fetches
-     * this via a web-accessible resource or native messaging.
+     * this via native messaging as a fallback path.
      */
     private fun writeConfig() {
         try {
