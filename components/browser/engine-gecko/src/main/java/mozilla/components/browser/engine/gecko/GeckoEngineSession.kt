@@ -1011,6 +1011,18 @@ class GeckoEngineSession(
             // Reset the status of the translation state for the page
             notifyObservers { onTranslatePageChange() }
             notifyObservers { onLocationChange(url, hasUserGesture) }
+
+            // Kitsune: Backstop injection at onLocationChange — by now
+            // the DOM is fully ready and loadUri("javascript:") will
+            // reliably execute in the page's main world. This catches
+            // cases where onPageStart's loadUri fired too early (before
+            // document was ready) or was blocked.
+            try {
+                val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
+                if (script != null) {
+                    session.loadUri("javascript:" + script)
+                }
+            } catch (_: Exception) {}
         }
 
         override fun onLoadRequest(
@@ -1204,19 +1216,14 @@ class GeckoEngineSession(
             }
 
             // Kitsune: Inject fingerprint override script at onPageStart.
-            // The KitsuneFpBridge returns the full JS override script
-            // (built by KitsuneFpInjector from the active profile).
-            // We inject it via loadUri("javascript:...") which runs in
-            // the page's own compartment (main world) — this is the ONLY
-            // reliable way to override navigator.platform, Date, Intl
-            // etc. before the page's own scripts can read the originals.
+            // GeckoView has NO evaluateJavaScript — loadUri("javascript:...")
+            // is the ONLY way to run JS in the page's main world. The
+            // script is a compact bootstrap that does ALL overrides inline.
+            // We keep it minimal to avoid GeckoView's URL-length limits.
             try {
                 mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.onPageStart()
                 val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
                 if (script != null) {
-                    // loadUri with javascript: scheme executes the script
-                    // in the page's main world. GeckoView redirects this
-                    // internally to evaluateJavaScript without navigating.
                     session.loadUri("javascript:" + script)
                 }
             } catch (_: Exception) {

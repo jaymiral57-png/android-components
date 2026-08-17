@@ -69,10 +69,18 @@ object KitsuneFpBridge {
     }
 
     /**
-     * Returns the injection script to run in the page's main world.
-     * Called by GeckoEngineSession.onPageStart on every navigation.
+     * Returns the config JSON string to set as data-kitsune-fp attribute.
+     * GeckoEngineSession.onPageStart calls this and uses evaluateJavaScript
+     * to set the attribute on document.documentElement. The content script
+     * (running at document_start) reads it and injects a <script> element
+     * into the page's main world.
      * Returns null if no profile is active.
      */
+    fun getConfigJson(): String? {
+        return configProvider?.invoke()
+    }
+
+    /** Legacy alias kept for compatibility. */
     fun getInjectionScript(): String? {
         return scriptProvider?.invoke()
     }
