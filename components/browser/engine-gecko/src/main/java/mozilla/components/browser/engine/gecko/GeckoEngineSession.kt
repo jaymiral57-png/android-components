@@ -1012,11 +1012,11 @@ class GeckoEngineSession(
             notifyObservers { onTranslatePageChange() }
             notifyObservers { onLocationChange(url, hasUserGesture) }
 
-            // Kitsune: Backstop injection at onLocationChange — by now
-            // the DOM is fully ready and loadUri("javascript:") will
-            // reliably execute in the page's main world. This catches
-            // cases where onPageStart's loadUri fired too early (before
-            // document was ready) or was blocked.
+            // Kitsune: Backstop — inject the full override script directly
+            // at onLocationChange (DOM is guaranteed ready here). This
+            // covers the case where the WebExtension isn't installed or
+            // its content script didn't fire. loadUri("javascript:...")
+            // runs the script in the page's main world.
             try {
                 val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
                 if (script != null) {
@@ -1215,16 +1215,25 @@ class GeckoEngineSession(
                 return
             }
 
-            // Kitsune: Inject fingerprint override script at onPageStart.
-            // GeckoView has NO evaluateJavaScript — loadUri("javascript:...")
-            // is the ONLY way to run JS in the page's main world. The
-            // script is a compact bootstrap that does ALL overrides inline.
-            // We keep it minimal to avoid GeckoView's URL-length limits.
+            // Kitsune: set the fingerprint config as a data attribute on
+            // <html> as early as possible. The WebExtension content_script
+            // (document_start) polls for this attribute and injects a
+            // <script> element into the page's MAIN WORLD once present.
+            // loadUri("javascript:...") is the only JS-execution API in
+            // GeckoView 153 (no evaluateJavaScript on GeckoSession).
             try {
                 mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.onPageStart()
-                val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
-                if (script != null) {
-                    session.loadUri("javascript:" + script)
+                val cfg = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getConfigJson()
+                if (cfg != null) {
+                    val escaped = cfg
+                        .replace("\\", "\\\\")
+                        .replace("'", "\\'")
+                        .replace("\"", "\\\"")
+                        .replace("\n", "\\n")
+                        .replace("\r", "")
+                    session.loadUri(
+                        "javascript:(function(){try{document.documentElement.setAttribute('data-kitsune-fp','$escaped');}catch(e){}})();",
+                    )
                 }
             } catch (_: Exception) {
                 // fall through to normal onPageStart handling

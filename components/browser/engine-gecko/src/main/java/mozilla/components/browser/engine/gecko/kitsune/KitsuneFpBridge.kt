@@ -69,18 +69,25 @@ object KitsuneFpBridge {
     }
 
     /**
-     * Returns the config JSON string to set as data-kitsune-fp attribute.
-     * GeckoEngineSession.onPageStart calls this and uses evaluateJavaScript
-     * to set the attribute on document.documentElement. The content script
-     * (running at document_start) reads it and injects a <script> element
-     * into the page's main world.
+     * Returns the config JSON string to embed as a data attribute on
+     * document.documentElement. GeckoEngineSession.onPageStart calls this
+     * and uses loadUri("javascript:...") to set the attribute as early as
+     * possible; the WebExtension content_script.js (running at
+     * document_start) polls for the attribute and, once present, injects a
+     * <script> element into the page's MAIN WORLD with the override code.
+     *
+     * This two-step pattern is the most reliable GeckoView injection
+     * mechanism because:
+     *   - the content script runs at document_start regardless of timing
+     *   - it self-retries (polls) until Kotlin sets the attribute
+     *   - the injected <script> runs in the page's own unrestricted world
      * Returns null if no profile is active.
      */
     fun getConfigJson(): String? {
         return configProvider?.invoke()
     }
 
-    /** Legacy alias kept for compatibility. */
+    /** Legacy alias — returns the inline injection script (backstop). */
     fun getInjectionScript(): String? {
         return scriptProvider?.invoke()
     }
