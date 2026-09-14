@@ -1011,18 +1011,6 @@ class GeckoEngineSession(
             // Reset the status of the translation state for the page
             notifyObservers { onTranslatePageChange() }
             notifyObservers { onLocationChange(url, hasUserGesture) }
-
-            // Kitsune: Backstop — inject the full override script directly
-            // at onLocationChange (DOM is guaranteed ready here). This
-            // covers the case where the WebExtension isn't installed or
-            // its content script didn't fire. loadUri("javascript:...")
-            // runs the script in the page's main world.
-            try {
-                val script = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getInjectionScript()
-                if (script != null) {
-                    session.loadUri("javascript:" + script)
-                }
-            } catch (_: Exception) {}
         }
 
         override fun onLoadRequest(
@@ -1213,30 +1201,6 @@ class GeckoEngineSession(
             // Ignore initial load of about:blank (see https://github.com/mozilla-mobile/android-components/issues/403)
             if (initialLoad && url == ABOUT_BLANK) {
                 return
-            }
-
-            // Kitsune: set the fingerprint config as a data attribute on
-            // <html> as early as possible. The WebExtension content_script
-            // (document_start) polls for this attribute and injects a
-            // <script> element into the page's MAIN WORLD once present.
-            // loadUri("javascript:...") is the only JS-execution API in
-            // GeckoView 153 (no evaluateJavaScript on GeckoSession).
-            try {
-                mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.onPageStart()
-                val cfg = mozilla.components.browser.engine.gecko.kitsune.KitsuneFpBridge.getConfigJson()
-                if (cfg != null) {
-                    val escaped = cfg
-                        .replace("\\", "\\\\")
-                        .replace("'", "\\'")
-                        .replace("\"", "\\\"")
-                        .replace("\n", "\\n")
-                        .replace("\r", "")
-                    session.loadUri(
-                        "javascript:(function(){try{document.documentElement.setAttribute('data-kitsune-fp','$escaped');}catch(e){}})();",
-                    )
-                }
-            } catch (_: Exception) {
-                // fall through to normal onPageStart handling
             }
 
             notifyObservers {
