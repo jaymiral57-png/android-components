@@ -50,8 +50,17 @@ abstract class SyncWebcompatExtension extends DefaultTask {
 }
 
 def syncWebcompatExtension = tasks.register("syncWebcompatExtension", SyncWebcompatExtension) {
-    def extension = "${gradle.mozconfig.topsrcdir}/browser/extensions/webcompat".toString()
-    def generated = "${gradle.mozconfig.topobjdir}/mobile/android/webcompat_addon_generated_files".toString()
+    // Kitsune: the Fenix checkout has no browser/extensions/webcompat — that tree
+    // lives in the separate Gecko source (see GECKO_SRC_DIR / gecko-dev). Without
+    // this the sync copies from a nonexistent dir and the webcompat extension is
+    // never packaged, so GeckoView fails at runtime:
+    //   NS_ERROR_FILE_NOT_FOUND resource://android/assets/extensions/webcompat/manifest.json
+    def geckoRoot = System.getenv("GECKO_SRC_DIR") ?: "${gradle.mozconfig.topsrcdir}/../gecko-dev"
+    // Kitsune: generated interventions (data/injections → run.js) are produced
+    // by the Gecko build into its objdir, not the Fenix checkout.
+    def geckoObj = System.getenv("GECKO_OBJ_DIR") ?: "${geckoRoot}/obj-aarch64-unknown-linux-android"
+    def extension = "${geckoRoot}/browser/extensions/webcompat".toString()
+    def generated = "${geckoObj}/mobile/android/webcompat_addon_generated_files".toString()
     extensionDir.set(extension)
     generatedFilesDir.set(generated)
     sources.from(extension, generated)
