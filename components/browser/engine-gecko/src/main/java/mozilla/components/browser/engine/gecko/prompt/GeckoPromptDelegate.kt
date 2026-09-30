@@ -966,7 +966,17 @@ internal class GeckoPromptDelegate(private val geckoEngineSession: GeckoEngineSe
         onConfirm: (String) -> Unit,
         onDismiss: () -> Unit,
     ) {
-        val initialDate = initialDateString.toDate(format)
+        val initialDate = try {
+            initialDateString.toDate(format)
+        } catch (_: Exception) {
+            // Kitsune: the field's current value can be in a different shape
+            // than the picker format we derived from step (e.g. "14:30" with
+            // step=1 -> "HH:mm:ss", or datetime-local with a space instead of
+            // "T"). toDate(format) throws, which used to abort the whole
+            // prompt before the dialog opened — the date field silently did
+            // nothing. Try the lenient multi-format parse, then today.
+            initialDateString.toDate() ?: Date()
+        }
         val minDate = if (minDateString.isNullOrEmpty()) null else minDateString.toDate()
         val maxDate = if (maxDateString.isNullOrEmpty()) null else maxDateString.toDate()
         val onSelect: (Date) -> Unit = {
